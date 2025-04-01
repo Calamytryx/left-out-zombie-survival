@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 
 # Initialize Pygame
 pygame.init()
@@ -15,6 +16,8 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 DARK_RED = (139, 0, 0)
+BROWN = (139, 69, 19)
+LIGHT_GRAY = (200, 200, 200)
 
 # Fonts
 font = pygame.font.Font(None, 36)
@@ -33,6 +36,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.center = (WIDTH // 2, HEIGHT // 2)
         self.speed = 5
         self.health = 100
+        self.weapon = None
 
     def update(self, keys):
         if keys[pygame.K_LEFT]:
@@ -49,6 +53,51 @@ class Player(pygame.sprite.Sprite):
         if self.health <= 0:
             self.kill()
 
+    def shoot(self, target_x, target_y):
+        # Shoot towards the mouse cursor
+        if self.weapon:
+            self.weapon.shoot(self.rect.centerx, self.rect.centery, target_x, target_y)
+
+# Weapon Class
+class Weapon(pygame.sprite.Sprite):
+    def __init__(self, name, damage, fire_rate, color):
+        super().__init__()
+        self.name = name
+        self.damage = damage
+        self.fire_rate = fire_rate
+        self.color = color
+        self.last_shot = 0
+
+    def shoot(self, x, y, target_x, target_y):
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_shot >= self.fire_rate:
+            self.last_shot = current_time
+            bullet = Bullet(x, y, target_x, target_y, self.damage, self.color)
+            all_sprites.add(bullet)
+            bullets.add(bullet)
+
+# Bullet Class
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, start_x, start_y, target_x, target_y, damage, color):
+        super().__init__()
+        self.image = pygame.Surface((10, 10))
+        self.image.fill(color)
+        self.rect = self.image.get_rect()
+        self.rect.center = (start_x, start_y)
+        self.damage = damage
+        self.target_x = target_x
+        self.target_y = target_y
+        self.speed = 10
+        self.angle = math.atan2(target_y - start_y, target_x - start_x)
+
+    def update(self):
+        self.rect.x += self.speed * math.cos(self.angle)
+        self.rect.y += self.speed * math.sin(self.angle)
+
+        # Remove bullet if it goes off-screen
+        if not screen.get_rect().colliderect(self.rect):
+            self.kill()
+
 # Zombie class
 class Zombie(pygame.sprite.Sprite):
     def __init__(self):
@@ -61,7 +110,6 @@ class Zombie(pygame.sprite.Sprite):
         self.speed = random.randint(2, 5)
 
     def update(self):
-        # Simple AI for zombies: Move towards the player
         player_x, player_y = player.rect.center
         if self.rect.x < player_x:
             self.rect.x += self.speed
@@ -72,10 +120,35 @@ class Zombie(pygame.sprite.Sprite):
         if self.rect.y > player_y:
             self.rect.y -= self.speed
 
+# Loot Box Class
+class LootBox(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((40, 40))
+        self.image.fill(BROWN)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+    def update(self):
+        if pygame.sprite.collide_rect(player, self):
+            self.kill()
+            # Randomly drop a weapon
+            weapon_choice = random.choice(["gun", "melee"])
+            if weapon_choice == "gun":
+                weapon = Weapon("Pistol", 10, 500, GREEN)
+                player.weapon = weapon
+                all_sprites.add(weapon)
+
 # Game Functions
 def draw_health_bar(health):
     pygame.draw.rect(screen, DARK_RED, (10, 10, 200, 20))
     pygame.draw.rect(screen, GREEN, (10, 10, health * 2, 20))
+
+def draw_map():
+    # Drawing roads and walls (simple)
+    pygame.draw.rect(screen, LIGHT_GRAY, (0, 0, WIDTH, HEIGHT))  # Road area
+    pygame.draw.rect(screen, BLACK, (100, 100, 600, 400))  # Wall area (blocking)
 
 def show_text(text, x, y, color):
     text_surface = font.render(text, True, color)
@@ -98,11 +171,16 @@ def main_game():
     all_sprites.add(player)
     zombies = pygame.sprite.Group()
 
-    # Spawn zombies in waves
+    loot_boxes = pygame.sprite.Group()
+    for _ in range(3):  # Spawn 3 loot boxes
+        loot_box = LootBox(random.randint(100, WIDTH - 100), random.randint(100, HEIGHT - 100))
+        all_sprites.add(loot_box)
+        loot_boxes.add(loot_box)
+
     wave_count = 1
     zombie_spawn_rate = 5
 
-    for _ in range(zombie_spawn_rate * wave_count):  # Spawn zombies
+    for _ in range(zombie_spawn_rate * wave_count):
         zombie = Zombie()
         all_sprites.add(zombie)
         zombies.add(zombie)
@@ -126,13 +204,12 @@ def main_game():
         player.update(keys)
         zombies.update()
 
-        # Check for collisions with zombies
-        if pygame.sprite.spritecollide(player, zombies, False):
-            player.take_damage(1)
-            if player.health <= 0:
-                game_over()
+        # Mouse interaction for shooting
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        player.shoot(mouse_x, mouse_y)
 
-        # Draw the environment
+        # Draw environment
+        draw_map()
         all_sprites.draw(screen)
         draw_health_bar(player.health)
 
@@ -142,7 +219,7 @@ def main_game():
         # Spawn next wave after some time
         if len(zombies) == 0:
             wave_count += 1
-            for _ in range(zombie_spawn_rate * wave_count):  # Spawn more zombies in the next wave
+            for _ in range(zombie_spawn_rate * wave_count):
                 zombie = Zombie()
                 all_sprites.add(zombie)
                 zombies.add(zombie)
